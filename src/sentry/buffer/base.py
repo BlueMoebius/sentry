@@ -24,29 +24,65 @@ class Buffer(object):
     This is useful in situations where a single event might be happening so fast that the queue cant
     keep up with the updates.
     """
-    def incr(self, model, columns, filters, extra=None):
+    def incr(self, model, columns, filters, extra=None, update_model=None, update_columns=None):
         """
         >>> incr(Group, columns={'times_seen': 1}, filters={'pk': group.pk})
         """
-        process_incr.apply_async(kwargs={
-            'model': model,
-            'columns': columns,
-            'filters': filters,
-            'extra': extra,
-        })
+        if (update_model is Null):
+            with open("SentryDoodlePad.txt","a") as f:
+                f.write("buff inc update_model == Null")
+            process_incr.apply_async(kwargs={
+                'model': model,
+                'columns': columns,
+                'filters': filters,
+                'extra': extra,
+            })
+        else:## why? can i just skip this if?
+            with open("SentryDoodlePad.txt","a") as f:
+                f.write("buff inc update_model is not Null")
+            process_incr.apply_async(kwargs={
+                'model': model,
+                'columns': columns,
+                'filters': filters,
+                'extra': extra,
+                'update_model': update_model,
+                'update_columns': update_columns,
+            })
 
     def process_pending(self):
         return []
 
-    def process(self, model, columns, filters, extra=None):
+    # update relation, should be the model you want to update! how to do that, I have no idea.
+    # update with value, is than the value(maybe list?) that should be added to relation
+    # (besides those that are in the other model)
+    # this model must be a relation. Here, all sorts of things could go wrong
+    def process(self, model, columns, filters, extra=None, update_model=None, update_columns=None):
         update_kwargs = dict((c, F(c) + v) for c, v in columns.iteritems())
         if extra:
             update_kwargs.update(extra)
-
-        _, created = model.objects.create_or_update(
+#         with open("SentryDoodlePad.txt","a") as f:
+#             f.write(str(filters) + "filters \n")
+        # here, if created == True, _ becomes instance of the new model (row)
+        mod, created = model.objects.create_or_update(
             defaults=update_kwargs,
             **filters
         )
+        # now map the _ models values to default kwargs. I don't think, this needs filters
+        # fuk if this works :/
+        # lets debug or desomething
+        with open("SentryDoodlePad.txt","a") as f:
+            if (update_model is not None):
+                f.write("relation model " + str(update_model) + " model" + str(model) + "\n")
+                f.write(str(update_columns))
+            if (update_model and created):
+                up_kwargs = dict((c, F(c) + v) for c, v in update_columns.iteritems())
+                up_kwargs.update({mod.__module__ : F(mod.__module__)})
+                f.write(str(up_kwargs) + "up_kwargs \n")
+                update_model.objects.create_or_update(
+                    **up_kwargs
+                )
+            else:
+                f.write("update_relation is Null\n")
 
         buffer_incr_complete.send_robust(
             model=model,

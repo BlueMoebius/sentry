@@ -18,6 +18,8 @@ from sentry.buffer import Buffer
 from sentry.tasks.process_buffer import process_incr
 from sentry.utils.compat import pickle
 from sentry.utils.imports import import_string
+from sentry.db.models.query import update
+from cqlshlib.cql3handling import update_col_completer
 
 
 class RedisBuffer(Buffer):
@@ -57,7 +59,7 @@ class RedisBuffer(Buffer):
     def _make_lock_key(self, key):
         return 'l:%s' % (key,)
 
-    def incr(self, model, columns, filters, extra=None):
+    def incr(self, model, columns, filters, extra=None, update_model=None, update_columns=None):
         """
         Increment the key by doing the following:
 
@@ -82,6 +84,19 @@ class RedisBuffer(Buffer):
         if extra:
             for column, value in extra.iteritems():
                 pipe.hset(key, 'e+' + column, pickle.dumps(value))
+        # Ok lets do this
+        with open("SentryDoodlePad.txt","a") as f:
+            f.write("I am in redis " + str(model) +" and update model is " + str(update_model) + "\n")
+            f.write("****************\nIn redis update column: " + str(update_columns) + "\n")
+
+        if(update_model is not None):
+            pipe.hsetnx(key, 'x', '%s.%s' % (update_model.__module__, update_model.__name__))
+
+            for a, b in update_columns.iteritems():
+                with open("SentryDoodlePad.txt","a") as f:
+                    f.write()
+                pipe.hset(key, 'y+' + a, b)
+        # kO
         pipe.expire(key, self.key_expire)
         pipe.zadd(self.pending_key, key, time())
         pipe.execute()
@@ -112,14 +127,27 @@ class RedisBuffer(Buffer):
         if not values:
             return
 
+        update_model = None
+        with open("SentryDoodlePad.txt","a") as f:
+            f.write("I am in redis" + str(key) + "\n")
+            for v in values:
+                f.write(" " + str(v) + "\n")
+                if str(v) == 'x':
+                    update_model = import_string(values['x'])
+
         model = import_string(values['m'])
+
         filters = pickle.loads(values['f'])
+
         incr_values = {}
+        update_columns = {}
         extra_values = {}
         for k, v in values.iteritems():
             if k.startswith('i+'):
                 incr_values[k[2:]] = int(v)
+            elif k.startswith('y+'):
+                update_columns[k[2:]] = v
             elif k.startswith('e+'):
                 extra_values[k[2:]] = pickle.loads(v)
 
-        super(RedisBuffer, self).process(model, incr_values, filters, extra_values)
+        super(RedisBuffer, self).process(model, incr_values, filters, extra_values, update_model, update_columns)

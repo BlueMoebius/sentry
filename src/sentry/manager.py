@@ -37,8 +37,8 @@ class GroupManager(BaseManager):
         manager.normalize()
         return manager.save(project)
 
-    def add_tags(self, group, tags):
-        from sentry.models import TagValue, GroupTagValue
+    def add_tags(self, group, tags, event=None):
+        from sentry.models import TagValue, GroupTagValue, EventFilterTagValue
 
         project = group.project
         date = group.last_seen
@@ -75,16 +75,39 @@ class GroupManager(BaseManager):
                 'data': data,
             })
 
-            buffer.incr(GroupTagValue, {
-                'times_seen': 1,
-            }, {
-                'group': group,
-                'project': project,
-                'key': key,
-                'value': value,
-            }, {
-                'last_seen': date,
-            })
+            if (event is None):
+                buffer.incr(GroupTagValue, {
+                    'times_seen': 1,
+                }, {
+                    'group': group,
+                    'project': project,
+                    'key': key,
+                    'value': value,
+                }, {
+                    'last_seen': date,
+                })
+            else:
+                buffer.incr(
+                    GroupTagValue,
+                    {
+                        'times_seen': 1,
+                    },
+                    {
+                        'group': group,
+                        'project': project,
+                        'key': key,
+                        'value': value,
+                    },
+                    {
+                        'last_seen': date,
+                    },
+                    EventFilterTagValue,
+                    {
+                        'group': group,
+                        'event': event,
+                    }
+                )
+
 
         if tsdb_keys:
             tsdb.incr_multi(tsdb_keys)

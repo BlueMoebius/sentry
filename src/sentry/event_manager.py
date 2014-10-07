@@ -13,6 +13,7 @@ import six
 from datetime import datetime
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from hashlib import md5
 from raven.utils.encoding import to_string
@@ -35,6 +36,7 @@ from sentry.tasks.merge import merge_group
 from sentry.tasks.post_process import post_process_group
 from sentry.utils.db import get_db_engine
 from sentry.utils.safe import safe_execute, trim, trim_dict
+import repr
 
 
 def count_limit(count):
@@ -319,13 +321,6 @@ class EventManager(object):
                 return event
             transaction.savepoint_commit(sid, using=using)
 
-            # if everything is ok, save the tag data
-            safe_execute(
-                self._save_message_tags,
-                event=event,
-                tags=tags
-            )
-
         sid = transaction.savepoint(using=using)
         try:
             EventMapping.objects.create(
@@ -350,6 +345,14 @@ class EventManager(object):
         # TODO: move this to the queue
         if is_regression and not raw:
             regression_signal.send_robust(sender=Group, instance=group)
+
+#         if not is_sample:
+#             # if everything is ok, save the tag data
+#             safe_execute(
+#                 self._save_message_tags,
+#                 event=event,
+#                 tags=tags
+#             )
 
         return event
 
@@ -462,7 +465,7 @@ class EventManager(object):
             is_sample = True
 
         # Rounded down to the nearest interval
-        safe_execute(Group.objects.add_tags, group, tags)
+        safe_execute(Group.objects.add_tags, group, tags, event)
 
         tsdb.incr_multi([
             (tsdb.models.group, group.id),
@@ -473,15 +476,19 @@ class EventManager(object):
 
     def _save_message_tags(self, event, tags):
         # This saves message tag, value data to the database. New GroupValueTag
-        # should have been already saved. The counters might not be updated, but here
-        # only the id (pk) of the row is needed
+        # should have already been saved, but it wasn't. This represents a problem
+        # with the first event with a new tag The counters might not be updated,
+        # but here only the id (pk) of the row is needed
         from sentry.constants import MAX_TAG_VALUE_LENGTH
 
         group_queryset = GroupTagValue.objects.filter(
             project=event.project,
             group_id=event.group,
         )
-
+        with open("SentryDoodlePad.txt","a") as f:
+            for g in group_queryset.all():
+                f.write("Group %s tag %s value %s"% (g.group_id, g.key, g.value))
+                f.write("\n")
         using = event.group._state.db
 
         sid = transaction.savepoint(using=using)
@@ -493,12 +500,18 @@ class EventManager(object):
             if len(value) > MAX_TAG_VALUE_LENGTH:
                 continue
 
-            # There can be only one.
-            grouptagval = group_queryset.get(key=key, value=value)
+            # There can be only one. Why is there none?
+            try:
+                grouptagval = group_queryset.get(key=key, value=value)
+            except ObjectDoesNotExist:
+                with open("SentryDoodlePad.txt","a") as ff:
+                    ff.write("Does not Exist" + str(tag_item) + "\n")
+                transaction.savepoint_rollback(sid, using=using)
+                return
 
             try:
                 eventtagvalue = EventFilterTagValue(
-                    event=event, group=event.group, grouptagvalue=grouptagval
+                    event=event, grouptagvalue=grouptagval
                 )
                 eventtagvalue.save()
 
@@ -507,6 +520,29 @@ class EventManager(object):
                 return
 
         transaction.savepoint_commit(sid, using)
+
+        #self._simons_experimentation(event.group)
+
+    def _simons_experimentation(self, group):
+        # XXX: IF you see this, burn it with fire, nuke it from orbit or something similarly devastating!
+        # This is here only as my personal doodles method, and was commited by MY! mistake!
+        from django.db import connection
+
+        settings.DEBUG =True
+        with open("SentryDoodlePad.txt","a") as f:
+            f.write( str(len(connection.queries)))
+            event_list = Event.objects.filter(
+                id__in=EventFilterTagValue.objects.filter(
+                   group_id=group.id,
+                   grouptagvalue__key="tag5",
+                   grouptagvalue__value="test5",
+                ).values_list('event_id')
+            ).values()
+            f.write(str(event_list) + "\n")
+#             for something in EventFilterTagValue.objects.select_related().filter(group_id=group.id):
+#                 f.write(str(something)+" hmm " + str(something.event.message) + str(something.event.id)+ " \n" )
+            f.write( str(len(connection.queries)) + "\n")
+        settings.DEBUG = False
 
     def _process_existing_aggregate(self, group, event, data):
         date = max(event.datetime, group.last_seen)
