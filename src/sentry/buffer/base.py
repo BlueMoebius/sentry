@@ -28,8 +28,8 @@ class Buffer(object):
         """
         >>> incr(Group, columns={'times_seen': 1}, filters={'pk': group.pk})
         """
-        if (update_model is Null):
-            with open("SentryDoodlePad.txt","a") as f:
+        if (update_model is None):
+            with open("SentryDoodlePad.txt", "a") as f:
                 f.write("buff inc update_model == Null")
             process_incr.apply_async(kwargs={
                 'model': model,
@@ -37,8 +37,9 @@ class Buffer(object):
                 'filters': filters,
                 'extra': extra,
             })
-        else:## why? can i just skip this if?
-            with open("SentryDoodlePad.txt","a") as f:
+        # do i need to seperate this ?
+        else:
+            with open("SentryDoodlePad.txt", "a") as f:
                 f.write("buff inc update_model is not Null")
             process_incr.apply_async(kwargs={
                 'model': model,
@@ -70,13 +71,13 @@ class Buffer(object):
         # now map the _ models values to default kwargs. I don't think, this needs filters
         # fuk if this works :/
         # lets debug or desomething
-        with open("SentryDoodlePad.txt","a") as f:
+        with open("SentryDoodlePad.txt", "a") as f:
             if (update_model is not None):
                 f.write("relation model " + str(update_model) + " model" + str(model) + "\n")
                 f.write(str(update_columns))
             if (update_model and created):
                 up_kwargs = dict((c, F(c) + v) for c, v in update_columns.iteritems())
-                up_kwargs.update({mod.__module__ : F(mod.__module__)})
+                up_kwargs.update({mod.__module__: F(mod.__module__)})
                 f.write(str(up_kwargs) + "up_kwargs \n")
                 update_model.objects.create_or_update(
                     **up_kwargs

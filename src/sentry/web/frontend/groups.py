@@ -38,7 +38,7 @@ from sentry.utils.dates import parse_date
 from sentry.web.decorators import has_access, has_group_access, login_required
 from sentry.web.forms import NewNoteForm
 from sentry.web.helpers import render_to_response, group_is_public
-from sentry.models.eventfiltertagvalue import EventFilterTagValue
+# from sentry.models.eventfiltertagvalue import EventFilterTagValue
 
 uuid_re = re.compile(r'^[a-z0-9]{32}$', re.I)
 event_re = re.compile(r'^(?P<event_id>[a-z0-9]{32})\$(?P<checksum>[a-z0-9]{32})$', re.I)
@@ -425,12 +425,12 @@ def group_event_list(request, team, project, group):
         'page': 'event_list',
     }, request)
 
+
 @has_group_access
 def group_tag_event_list(request, team, project, group):
     # XXX: This is a placeholder!
 
     grouptagvalue_list = GroupTagValue.objects.filter(group=group).values("id", "key", "value")
-
 
     event_list = group.event_set.all().order_by('-datetime')[:100]
 
@@ -440,6 +440,7 @@ def group_tag_event_list(request, team, project, group):
         'event_list': event_list,
         'page': 'event_list',
     }, request)
+
 
 @has_access(MEMBER_USER)
 def group_event_details_json(request, team, project, group_id, event_id_or_latest):

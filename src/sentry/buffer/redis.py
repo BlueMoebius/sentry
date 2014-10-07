@@ -18,8 +18,8 @@ from sentry.buffer import Buffer
 from sentry.tasks.process_buffer import process_incr
 from sentry.utils.compat import pickle
 from sentry.utils.imports import import_string
-from sentry.db.models.query import update
-from cqlshlib.cql3handling import update_col_completer
+# from sentry.db.models.query import update
+# from cqlshlib.cql3handling import update_col_completer
 
 
 class RedisBuffer(Buffer):
@@ -85,15 +85,15 @@ class RedisBuffer(Buffer):
             for column, value in extra.iteritems():
                 pipe.hset(key, 'e+' + column, pickle.dumps(value))
         # Ok lets do this
-        with open("SentryDoodlePad.txt","a") as f:
-            f.write("I am in redis " + str(model) +" and update model is " + str(update_model) + "\n")
+        with open("SentryDoodlePad.txt", "a") as f:
+            f.write("I am in redis " + str(model) + " and update model is " + str(update_model) + "\n")
             f.write("****************\nIn redis update column: " + str(update_columns) + "\n")
 
         if(update_model is not None):
             pipe.hsetnx(key, 'x', '%s.%s' % (update_model.__module__, update_model.__name__))
 
             for a, b in update_columns.iteritems():
-                with open("SentryDoodlePad.txt","a") as f:
+                with open("SentryDoodlePad.txt", "a") as f:
                     f.write()
                 pipe.hset(key, 'y+' + a, b)
         # kO
@@ -128,7 +128,7 @@ class RedisBuffer(Buffer):
             return
 
         update_model = None
-        with open("SentryDoodlePad.txt","a") as f:
+        with open("SentryDoodlePad.txt", "a") as f:
             f.write("I am in redis" + str(key) + "\n")
             for v in values:
                 f.write(" " + str(v) + "\n")

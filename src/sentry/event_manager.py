@@ -36,7 +36,6 @@ from sentry.tasks.merge import merge_group
 from sentry.tasks.post_process import post_process_group
 from sentry.utils.db import get_db_engine
 from sentry.utils.safe import safe_execute, trim, trim_dict
-import repr
 
 
 def count_limit(count):
@@ -485,9 +484,9 @@ class EventManager(object):
             project=event.project,
             group_id=event.group,
         )
-        with open("SentryDoodlePad.txt","a") as f:
+        with open("SentryDoodlePad.txt", "a") as f:
             for g in group_queryset.all():
-                f.write("Group %s tag %s value %s"% (g.group_id, g.key, g.value))
+                f.write("Group %s tag %s value %s" % (g.group_id, g.key, g.value))
                 f.write("\n")
         using = event.group._state.db
 
@@ -504,7 +503,7 @@ class EventManager(object):
             try:
                 grouptagval = group_queryset.get(key=key, value=value)
             except ObjectDoesNotExist:
-                with open("SentryDoodlePad.txt","a") as ff:
+                with open("SentryDoodlePad.txt", "a") as ff:
                     ff.write("Does not Exist" + str(tag_item) + "\n")
                 transaction.savepoint_rollback(sid, using=using)
                 return
@@ -521,27 +520,27 @@ class EventManager(object):
 
         transaction.savepoint_commit(sid, using)
 
-        #self._simons_experimentation(event.group)
+        # self._simons_experimentation(event.group)
 
     def _simons_experimentation(self, group):
         # XXX: IF you see this, burn it with fire, nuke it from orbit or something similarly devastating!
         # This is here only as my personal doodles method, and was commited by MY! mistake!
         from django.db import connection
 
-        settings.DEBUG =True
-        with open("SentryDoodlePad.txt","a") as f:
-            f.write( str(len(connection.queries)))
+        settings.DEBUG = True
+        with open("SentryDoodlePad.txt", "a") as f:
+            f.write(str(len(connection.queries)))
             event_list = Event.objects.filter(
                 id__in=EventFilterTagValue.objects.filter(
-                   group_id=group.id,
-                   grouptagvalue__key="tag5",
-                   grouptagvalue__value="test5",
+                    group_id=group.id,
+                    grouptagvalue__key="tag5",
+                    grouptagvalue__value="test5",
                 ).values_list('event_id')
             ).values()
             f.write(str(event_list) + "\n")
-#             for something in EventFilterTagValue.objects.select_related().filter(group_id=group.id):
+#                 for something in EventFilterTagValue.objects.select_related().filter(group_id=group.id):
 #                 f.write(str(something)+" hmm " + str(something.event.message) + str(something.event.id)+ " \n" )
-            f.write( str(len(connection.queries)) + "\n")
+            f.write(str(len(connection.queries)) + "\n")
         settings.DEBUG = False
 
     def _process_existing_aggregate(self, group, event, data):

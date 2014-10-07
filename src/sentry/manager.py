@@ -108,7 +108,6 @@ class GroupManager(BaseManager):
                     }
                 )
 
-
         if tsdb_keys:
             tsdb.incr_multi(tsdb_keys)
 
