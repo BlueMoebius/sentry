@@ -320,6 +320,43 @@
                 $this.find('textarea').addClass('disabled');
             });
 
+            $('.tag-widget').each(function(){
+                var $widget = $(this);
+                $.ajax({
+                    url: $widget.data('url'),
+                    error: function() {
+                        $widget.find('.loading').remove();
+                        $widget.append($('<li class="error">Unable to load tag information</li>'));
+                    },
+                    success: function(data) {
+                        var total = data.total,
+                            eTagName = encodeURIComponent(data.name);
+
+                        $widget.find('.loading').remove();
+                        if (total === 0) {
+                            $widget.append($('<li>No data available.</li>'));
+                        } else {
+                            $.each(data.values, function(_, item){
+                                var tagValue = item[0],
+                                    timesSeen = item[1],
+                                    percent = parseInt(timesSeen / total * 100, 10),
+                                    url = app.config.urlPrefix + '/' + app.config.teamId + '/' + app.config.projectId + '/';
+
+                                $('<li>' +
+                                    '<div class="progressbar">' +
+                                        '<div style="width:' + percent + '%">' + timesSeen + '</div>' +
+                                        '<a href="' + url + '?' + eTagName + '=' + encodeURIComponent(tagValue) + '">' +
+                                            tagValue +
+                                            '<span>' + percent + '%</span>' +
+                                        '</a>' +
+                                    '</div>' +
+                                '</li>').appendTo($widget);
+                            });
+                        }
+                    }
+                });
+            });
+
             var $event_nav = $('#event_nav');
             if ($event_nav.length > 0) {
                 var $window = $(window);

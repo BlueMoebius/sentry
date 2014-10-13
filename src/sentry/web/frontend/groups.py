@@ -25,7 +25,7 @@ from sentry.constants import (
 )
 from sentry.db.models import create_or_update
 from sentry.models import (
-    Project, Group, Event, Activity, EventMapping, TagKey, GroupSeen
+    Project, Group, GroupMeta, Event, Activity, EventMapping, TagKey, GroupSeen
 )
 from sentry.permissions import (
     can_admin_group, can_remove_group, can_create_projects
@@ -141,12 +141,12 @@ def render_with_group_context(group, template, context, request=None,
         if event.id:
             base_qs = group.event_set.exclude(id=event.id)
             try:
-                next_event = base_qs.filter(datetime__gte=event.datetime, pk__gte=event.pk).order_by('datetime', 'pk')[0:1].get()
+                next_event = base_qs.filter(datetime__gte=event.datetime).order_by('datetime')[0:1].get()
             except Event.DoesNotExist:
                 next_event = None
 
             try:
-                prev_event = base_qs.filter(datetime__lte=event.datetime, pk__lte=event.pk).order_by('-datetime', '-pk')[0:1].get()
+                prev_event = base_qs.filter(datetime__lte=event.datetime).order_by('-datetime')[0:1].get()
             except Event.DoesNotExist:
                 prev_event = None
         else:
@@ -256,6 +256,8 @@ def group_list(request, team, project):
         del query_dict['p']
     pageless_query_string = query_dict.urlencode()
 
+    GroupMeta.objects.populate_cache(response['event_list'])
+
     return render_to_response('sentry/groups/group_list.html', {
         'team': project.team,
         'project': project,
@@ -284,6 +286,7 @@ def group(request, team, project, group, event_id=None):
         event = group.get_latest_event() or Event()
 
     Event.objects.bind_nodes([event], 'data')
+    GroupMeta.objects.populate_cache([group])
 
     # bind params to group in case they get hit
     event.group = group
@@ -409,6 +412,9 @@ def group_tag_details(request, team, project, group, tag_name):
 def group_event_list(request, team, project, group):
     # TODO: we need the event data to bind after we limit
     event_list = group.event_set.all().order_by('-datetime')[:100]
+
+    for event in event_list:
+        event.project = project
 
     Event.objects.bind_nodes(event_list, 'data')
 

@@ -316,17 +316,25 @@
 
         addMember: function(member){
             var existing = this.collection.get(member.id);
+
+            function getAttr(x) {
+                if (typeof member.get === 'function') {
+                    return member.get(x);
+                } else {
+                    return member[x];
+                }
+            }
             if (!existing) {
                 if (this.collection.length >= this.options.maxItems) {
                     // bail early if the score is too low
-                    if (member.score < this.collection.last().get('score'))
+                    if (getAttr('score') < this.collection.last().get('score'))
                         return;
 
                     // make sure we limit the number shown
                     while (this.collection.length >= this.options.maxItems)
                         this.collection.pop();
                 }
-            } else if (member.version && existing.get('version') >= member.version) {
+            } else if (existing.get('version') >= (getAttr('version') || 0)) {
                 return;
             }
             this.collection.add(member, {merge: true});
