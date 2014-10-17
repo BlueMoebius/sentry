@@ -5,6 +5,8 @@ sentry.models.event
 :copyright: (c) 2010-2014 by the Sentry Team, see AUTHORS for more details.
 :license: BSD, see LICENSE for more details.
 """
+from __future__ import absolute_import
+
 import warnings
 
 from django.db import models
@@ -74,6 +76,10 @@ class Event(Model):
     @property
     def team(self):
         return self.project.team
+
+    @property
+    def version(self):
+        return self.data.get('version', '5')
 
     @memoize
     def ip_address(self):

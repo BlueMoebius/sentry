@@ -7,6 +7,7 @@ sentry.templatetags.sentry_helpers
 """
 # XXX: Import django-paging's template tags so we don't have to worry about
 #      INSTALLED_APPS
+from __future__ import absolute_import
 
 import os.path
 import pytz
@@ -402,7 +403,7 @@ def github_button(user, repo):
 def render_values(value, threshold=5, collapse_to=3):
     if isinstance(value, (list, tuple)):
         value = dict(enumerate(value))
-        is_list, is_dict = True, True
+        is_list, is_dict = bool(value), True
     else:
         is_list, is_dict = False, isinstance(value, dict)
 
