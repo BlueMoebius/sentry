@@ -104,16 +104,12 @@ def post_process_group(event, is_new, is_regression, is_sample, **kwargs):
             for c in condition_list
         )
 
-        passed = True
         if match == 'all':
-            if not all(condition_iter):
-                passed = False
+            passed = all(condition_iter)
         elif match == 'any':
-            if not any(condition_iter):
-                passed = False
+            passed = any(condition_iter)
         elif match == 'none':
-            if any(condition_iter):
-                passed = False
+            passed = not any(condition_iter)
         else:
             rules_logger.error('Unsupported action_match %r for rule %d',
                                match, rule.id)
@@ -162,7 +158,7 @@ def execute_rule(rule_id, event, state):
             rules_logger.error('Unregistered action %r', action['id'])
             continue
 
-        action_inst = action_cls(project)
+        action_inst = action_cls(project, data=action)
         safe_execute(action_inst.after, event=event, state=state)
 
 
