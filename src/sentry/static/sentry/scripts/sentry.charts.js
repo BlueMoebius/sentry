@@ -62,6 +62,7 @@ if (Sentry === undefined) {
     };
 
     Sentry.charts = {};
+    Sentry.charts.tickFormatter = tickFormatter;
     Sentry.charts.render = function(el){
         var $sparkline = $(el);
 
@@ -134,6 +135,9 @@ if (Sentry === undefined) {
                     tooltip: true,
                     tooltipOpts: {
                         content: function(label, xval, yval, flotItem) {
+                            if(typeof yval.toLocaleString == "function") {
+                                return yval.toLocaleString() + ' events<br>' + moment(xval).format('llll');
+                            }
                             return yval + ' events<br>' + moment(xval).format('llll');
                         },
                         defaultTheme: false

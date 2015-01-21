@@ -8,9 +8,10 @@ sentry.event_manager
 from __future__ import absolute_import, print_function
 
 import logging
+import math
 import six
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -20,10 +21,11 @@ from uuid import uuid4
 
 from sentry.app import buffer, tsdb
 from sentry.constants import (
-    STATUS_RESOLVED, STATUS_UNRESOLVED, LOG_LEVELS,
-    DEFAULT_LOGGER_NAME, MAX_CULPRIT_LENGTH
+    LOG_LEVELS, DEFAULT_LOGGER_NAME, MAX_CULPRIT_LENGTH
 )
-from sentry.models import Event, EventMapping, Group, GroupHash, Project
+from sentry.models import (
+    Event, EventMapping, Group, GroupHash, GroupStatus, Project
+)
 from sentry.plugins import plugins
 from sentry.signals import regression_signal
 from sentry.utils.logging import suppress_exceptions
@@ -87,7 +89,7 @@ else:
 def plugin_is_regression(group, event):
     project = event.project
     for plugin in plugins.for_project(project):
-        result = safe_execute(plugin.is_regression, group, event)
+        result = safe_execute(plugin.is_regression, group, event, _with_transaction=False)
         if result is not None:
             return result
     return True
@@ -120,8 +122,14 @@ class ScoreClause(object):
 
         return (sql, [])
 
+    @classmethod
+    def calculate(self, times_seen, last_seen):
+        return math.log(times_seen) * 600 + float(last_seen.strftime('%s'))
+
 
 class EventManager(object):
+    logger = logging.getLogger('sentry.events')
+
     def __init__(self, data, version='5'):
         self.data = data
         self.version = version
@@ -217,7 +225,6 @@ class EventManager(object):
         return data
 
     @suppress_exceptions
-    @transaction.commit_on_success
     def save(self, project, raw=False):
         # TODO: culprit should default to "most recent" frame in stacktraces when
         # it's not provided.
@@ -288,55 +295,53 @@ class EventManager(object):
             # TODO(dcramer): we should ensure we create Release objects
             tags.append(('sentry:release', release))
 
-        for plugin in plugins.for_project(project):
+        for plugin in plugins.for_project(project, version=None):
             added_tags = safe_execute(plugin.get_tags, event)
             if added_tags:
                 tags.extend(added_tags)
 
-        result = safe_execute(
+        group, is_new, is_regression, is_sample = safe_execute(
             self._save_aggregate,
             event=event,
             tags=tags,
             hashes=hashes,
             **group_kwargs
         )
-        if result is None:
-            return
-
-        group, is_new, is_regression, is_sample = result
 
         using = group._state.db
 
         event.group = group
 
+        # Rounded down to the nearest interval
+        safe_execute(Group.objects.add_tags, group, tags)
+
         # save the event unless its been sampled
         if not is_sample:
-            sid = transaction.savepoint(using=using)
             try:
-                event.save()
+                with transaction.atomic():
+                    event.save()
             except IntegrityError:
-                transaction.savepoint_rollback(sid, using=using)
+                self.logger.info('Duplicate Event found for event_id=%s', event_id)
                 return event
-            transaction.savepoint_commit(sid, using=using)
 
-        sid = transaction.savepoint(using=using)
         try:
-            EventMapping.objects.create(
-                project=project, group=group, event_id=event_id)
+            with transaction.atomic():
+                EventMapping.objects.create(
+                    project=project, group=group, event_id=event_id)
         except IntegrityError:
-            transaction.savepoint_rollback(sid, using=using)
+            self.logger.info('Duplicate EventMapping found for event_id=%s', event_id)
             return event
-        transaction.savepoint_commit(sid, using=using)
-        transaction.commit_unless_managed(using=using)
 
         if not raw:
             post_process_group.delay(
                 group=group,
                 event=event,
-                is_new=is_new or is_regression,  # backwards compat
+                is_new=is_new,
                 is_sample=is_sample,
                 is_regression=is_regression,
             )
+        else:
+            self.logger.info('Raw event passed; skipping post process for event_id=%s', event_id)
 
         index_event.delay(event)
 
@@ -397,6 +402,7 @@ class EventManager(object):
         # it should be resolved by the hash merging function later but this
         # should be better tested/reviewed
         if existing_group_id is None:
+            kwargs['score'] = ScoreClause.calculate(1, kwargs['last_seen'])
             group, group_is_new = Group.objects.get_or_create(
                 project=project,
                 # TODO(dcramer): remove checksum from Group/Event
@@ -439,13 +445,6 @@ class EventManager(object):
         else:
             is_regression = False
 
-            # TODO: this update should actually happen as part of create
-            group.update(score=ScoreClause(group))
-
-            # We need to commit because the queue can run too fast and hit
-            # an issue with the group not existing before the buffers run
-            transaction.commit_unless_managed(using=group._state.db)
-
         # Determine if we've sampled enough data to store this event
         if is_new:
             is_sample = False
@@ -453,9 +452,6 @@ class EventManager(object):
             is_sample = False
         else:
             is_sample = True
-
-        # Rounded down to the nearest interval
-        safe_execute(Group.objects.add_tags, group, tags)
 
         tsdb.incr_multi([
             (tsdb.models.group, group.id),
@@ -479,18 +475,18 @@ class EventManager(object):
 
         is_regression = False
         if group.is_resolved() and plugin_is_regression(group, event):
-            # Making things atomic
             is_regression = bool(Group.objects.filter(
                 id=group.id,
-                status=STATUS_RESOLVED,
+                # ensure we cant update things if the status has been set to
+                # muted
+                status__in=[GroupStatus.RESOLVED, GroupStatus.UNRESOLVED],
             ).exclude(
-                active_at__gte=date,
-            ).update(active_at=date, status=STATUS_UNRESOLVED))
-
-            transaction.commit_unless_managed(using=group._state.db)
+                # add to the regression window to account for races here
+                active_at__gte=date - timedelta(seconds=5),
+            ).update(active_at=date, status=GroupStatus.UNRESOLVED))
 
             group.active_at = date
-            group.status = STATUS_UNRESOLVED
+            group.status = GroupStatus.UNRESOLVED
 
         group.last_seen = extra['last_seen']
 

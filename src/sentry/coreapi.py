@@ -107,12 +107,15 @@ def client_metadata(client=None, project=None, exception=None, tags=None, extra=
         if project.team:
             extra['team_slug'] = project.team.slug
             extra['team_id'] = project.team.id
+        if project.organization:
+            extra['organization_slug'] = project.organization.slug
+            extra['organization_id'] = project.organization.id
 
     tags['client'] = client
     if exception:
         tags['exc_type'] = type(exception).__name__
-    if project and project.team:
-        tags['project'] = '%s/%s' % (project.team.slug, project.slug)
+    if project and project.organization:
+        tags['project'] = '%s/%s' % (project.organization.slug, project.slug)
 
     result = {'extra': extra}
     if exception:
@@ -209,7 +212,10 @@ def safely_load_json_string(json_string):
 
 
 def process_data_timestamp(data, current_datetime=None):
-    if is_float(data['timestamp']):
+    if not data['timestamp']:
+        del data['timestamp']
+        return data
+    elif is_float(data['timestamp']):
         try:
             data['timestamp'] = datetime.fromtimestamp(float(data['timestamp']))
         except Exception:
@@ -383,6 +389,15 @@ def validate_data(project, data, client=None):
                 DEFAULT_LOG_LEVEL, DEFAULT_LOG_LEVEL)
 
     return data
+
+
+def ensure_does_not_have_ip(data):
+    if 'sentry.interfaces.Http' in data:
+        if 'env' in data['sentry.interfaces.Http']:
+            data['sentry.interfaces.Http']['env'].pop('REMOTE_ADDR', None)
+
+    if 'sentry.interfaces.User' in data:
+        data['sentry.interfaces.User'].pop('ip_address', None)
 
 
 def ensure_has_ip(data, ip_address):
