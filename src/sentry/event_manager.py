@@ -324,6 +324,14 @@ class EventManager(object):
                 self.logger.info('Duplicate Event found for event_id=%s', event_id)
                 return event
 
+            # if everything is ok, save the tag data
+            safe_execute(
+                self._save_message_tags,
+                event=event,
+                tags=tags
+            )
+
+        sid = transaction.savepoint(using=using)
         try:
             with transaction.atomic():
                 EventMapping.objects.create(
@@ -459,6 +467,57 @@ class EventManager(object):
         ])
 
         return group, is_new, is_regression, is_sample
+
+    def _save_message_tags(self, event, tags):
+        # This saves message tag, value data to the database. New GroupValueTag
+        # should have been already saved. The counters might not be updated, but here
+        # only the id (pk) of the row is needed
+        from sentry.constants import MAX_TAG_VALUE_LENGTH
+
+        group_queryset = GroupTagValue.objects.filter(
+            project=event.project,
+            group_id=event.group,
+        )
+
+        using = event.group._state.db
+
+        sid = transaction.savepoint(using=using)
+
+        for tag_item in tags:
+            key, value = tag_item[:2]
+
+            value = six.text_type(value)
+            if len(value) > MAX_TAG_VALUE_LENGTH:
+                continue
+            grouptagval = None
+            try:
+                # if it does not exist, create it with times_seen = 0 and let
+                # buffer increase it to 1
+                grouptagval, _ = group_queryset.get_or_create(
+                    key=key,
+                    value=value,
+                    defaults={
+                        'times_seen': 0,
+                        'project': event.project,
+                        'group': event.group,
+                    }
+                )
+            except GroupTagValue.MultipleObjectsReturned:
+                transaction.savepoint_rollback(sid, using=using)
+                return
+
+            if grouptagval:
+                try:
+                    eventtagvalue = EventFilterTagValue(
+                        event=event, group=event.group, grouptagvalue=grouptagval
+                    )
+                    eventtagvalue.save()
+
+                except IntegrityError:
+                    transaction.savepoint_rollback(sid, using=using)
+                    return
+
+        transaction.savepoint_commit(sid, using)
 
     def _process_existing_aggregate(self, group, event, data):
         date = max(event.datetime, group.last_seen)

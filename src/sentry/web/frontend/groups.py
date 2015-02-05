@@ -29,6 +29,7 @@ from sentry.constants import (
 from sentry.db.models import create_or_update
 from sentry.models import (
     Project, Group, GroupMeta, Event, Activity, EventMapping, TagKey, GroupSeen
+    EventFilterTagValue
 )
 from sentry.permissions import (
     can_admin_group, can_remove_group, can_create_projects
@@ -475,6 +476,93 @@ def group_event_list(request, organization, project, group):
         'event_list': event_list,
         'page': 'event_list',
     }, request)
+
+
+@has_group_access
+def group_event_tag_list(request, team, project, group, grouptagvalue=None):
+    # Lets try to do some sorting and queriing
+    from sentry.utils.dates import parse_date
+    from datetime import timedelta
+#     assert_perm(project, request.user, request.auth)
+    query = request.GET.get('query')
+
+    # TODO: dates should include timestamps
+    date_from = request.GET.get('df')
+    time_from = request.GET.get('tf')
+
+    date_to = request.GET.get('dt')
+    time_to = request.GET.get('tt')
+
+    today = timezone.now()
+    # date format is Y-m-d
+
+    event_list = Event.objects.filter(
+        id__in=EventFilterTagValue.objects.filter(
+            group_id=group.id,
+        ).values_list('event_id'),
+    )
+
+    if grouptagvalue is not None:
+        event_list = Event.objects.filter(
+            id__in=EventFilterTagValue.objects.filter(
+                group_id=group.id,
+                grouptagvalue_id=grouptagvalue,
+            ).values_list('event_id'),
+        )
+
+    if any(x is None for x in [date_from, time_from, date_to, time_to]):
+        date_from, date_to = parse_date(date_from, time_from), parse_date(date_to, time_to)
+    else:
+        date_from = today - timedelta(days=30)
+        date_to = today
+
+    if query is not None:
+        event_list = event_list.filter(
+            message__icontains=query
+        )
+
+    if date_from is not None and date_to is not None:
+        event_list = event_list.filter(
+            datetime__range=(date_from, date_to)
+        )
+    elif date_from is not None:
+        event_list = event_list.filter(
+            datetime__gt=date_from
+        )
+    elif date_to is not None:
+        event_list = event_list.filter(
+            datetime__lt=date_from
+        )
+
+    # now we need all the events with spacific GroupTagValueId id
+    # and all their tag_values
+
+    full_list = event_list.values(
+        'eventfiltertagvalue__grouptagvalue__key',
+        'eventfiltertagvalue__grouptagvalue__value',
+        'eventfiltertagvalue__grouptagvalue__id',
+        'id',
+        'message',
+        'project__slug',
+        'project__team__slug',
+        'group_id'
+    ).order_by('-datetime', 'eventfiltertagvalue__grouptagvalue__key')
+
+    Event.objects.bind_nodes(event_list, 'data')
+
+    return render_with_group_context(
+        group,
+        'sentry/groups/event_tag_list.html',
+        {
+            'event_list': event_list.order_by('-datetime'),
+            'full_list': full_list,
+            'page': 'event_list',
+            'query': query,
+            'from_date': date_from,
+            'to_date': date_to
+        },
+        request
+    )
 
 
 @has_access(MEMBER_USER)
