@@ -28,8 +28,8 @@ from sentry.constants import (
 )
 from sentry.db.models import create_or_update
 from sentry.models import (
-    Project, Group, GroupMeta, Event, Activity, EventMapping, TagKey, GroupSeen
-    EventFilterTagValue
+    Project, Group, GroupMeta, Event, Activity, EventMapping, TagKey, GroupSeen,
+    EventFilterTagValue, GroupTagValue
 )
 from sentry.permissions import (
     can_admin_group, can_remove_group, can_create_projects
@@ -479,13 +479,11 @@ def group_event_list(request, organization, project, group):
 
 
 @has_group_access
-def group_event_tag_list(request, team, project, group, grouptagvalue=None):
+def group_event_tag_list(request, organization, project, group, grouptagvalue=None):
     # Lets try to do some sorting and queriing
-    from sentry.utils.dates import parse_date
     from datetime import timedelta
 #     assert_perm(project, request.user, request.auth)
     query = request.GET.get('query')
-
     # TODO: dates should include timestamps
     date_from = request.GET.get('df')
     time_from = request.GET.get('tf')
@@ -494,49 +492,62 @@ def group_event_tag_list(request, team, project, group, grouptagvalue=None):
     time_to = request.GET.get('tt')
 
     today = timezone.now()
-    # date format is Y-m-d
+    befor_today = today - timedelta(days=30)
 
+    # date format is Y-m-d
+    #print events
     event_list = Event.objects.filter(
         id__in=EventFilterTagValue.objects.filter(
             group_id=group.id,
-        ).values_list('event_id'),
+        ).values('event_id').distinct(),
     )
-
     if grouptagvalue is not None:
         event_list = Event.objects.filter(
             id__in=EventFilterTagValue.objects.filter(
                 group_id=group.id,
                 grouptagvalue_id=grouptagvalue,
-            ).values_list('event_id'),
+            ).values('event_id').distinct(),
         )
-
-    if any(x is None for x in [date_from, time_from, date_to, time_to]):
+    #iff all are empty leave them empty
+    if any(x != "" for x in [date_from, time_from, date_to, time_to]):
+        #set default values
+        if not date_from:
+            date_from = befor_today.strftime('%Y-%m-%d')
+        if not date_to:
+            date_to = today.strftime('%Y-%m-%d')
+        if not time_from:
+            time_from = "00:00:01"
+        if not time_to:
+            time_to = "23:59:59"
         date_from, date_to = parse_date(date_from, time_from), parse_date(date_to, time_to)
-    else:
-        date_from = today - timedelta(days=30)
-        date_to = today
 
-    if query is not None:
+
+
+    #sanity check
+    if date_from > date_to:
+        tmp = date_from
+        date_from = date_to
+        date_to = tmp
+
+    if query:
         event_list = event_list.filter(
             message__icontains=query
         )
-
-    if date_from is not None and date_to is not None:
+    if date_from and date_to:
         event_list = event_list.filter(
             datetime__range=(date_from, date_to)
         )
-    elif date_from is not None:
+    elif date_from:
         event_list = event_list.filter(
             datetime__gt=date_from
         )
-    elif date_to is not None:
+    elif date_to:
         event_list = event_list.filter(
             datetime__lt=date_from
         )
 
     # now we need all the events with spacific GroupTagValueId id
     # and all their tag_values
-
     full_list = event_list.values(
         'eventfiltertagvalue__grouptagvalue__key',
         'eventfiltertagvalue__grouptagvalue__value',
@@ -544,7 +555,7 @@ def group_event_tag_list(request, team, project, group, grouptagvalue=None):
         'id',
         'message',
         'project__slug',
-        'project__team__slug',
+        'project__organization__slug',
         'group_id'
     ).order_by('-datetime', 'eventfiltertagvalue__grouptagvalue__key')
 
@@ -564,6 +575,21 @@ def group_event_tag_list(request, team, project, group, grouptagvalue=None):
         request
     )
 
+def parse_date_his(datestr, timestr):
+    # format is Y-m-d
+    if not (datestr or timestr):
+        return
+    if not timestr:
+        return datetime.datetime.strptime(datestr, '%Y-%m-%d')
+
+    datetimestr = datestr.strip() + ' ' + timestr.strip()
+    try:
+        return datetime.datetime.strptime(datetimestr, '%Y-%m-%d %H:%i:%s')
+    except Exception:
+        try:
+            return datetime.datetime.parse(datetimestr)
+        except Exception:
+            return
 
 @has_access(MEMBER_USER)
 def group_event_details_json(request, organization, project, group_id, event_id_or_latest):

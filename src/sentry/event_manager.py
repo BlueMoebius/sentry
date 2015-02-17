@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function
 import logging
 import math
 import six
+import sys
 
 from datetime import datetime, timedelta
 from django.conf import settings
@@ -24,7 +25,8 @@ from sentry.constants import (
     LOG_LEVELS, DEFAULT_LOGGER_NAME, MAX_CULPRIT_LENGTH
 )
 from sentry.models import (
-    Event, EventMapping, Group, GroupHash, GroupStatus, Project
+    Event, EventMapping, Group, GroupHash, GroupStatus, Project,
+    EventFilterTagValue, GroupTagValue
 )
 from sentry.plugins import plugins
 from sentry.signals import regression_signal
@@ -325,13 +327,9 @@ class EventManager(object):
                 return event
 
             # if everything is ok, save the tag data
-            safe_execute(
-                self._save_message_tags,
-                event=event,
-                tags=tags
-            )
+            self._save_message_tags(event=event, tags=tags)
 
-        sid = transaction.savepoint(using=using)
+
         try:
             with transaction.atomic():
                 EventMapping.objects.create(
@@ -474,50 +472,42 @@ class EventManager(object):
         # only the id (pk) of the row is needed
         from sentry.constants import MAX_TAG_VALUE_LENGTH
 
+        print ("save_message_tags ")
+        print (event.id, tags)
         group_queryset = GroupTagValue.objects.filter(
             project=event.project,
             group_id=event.group,
         )
 
-        using = event.group._state.db
+        try:
+            for tag_item in tags:
+                key, value = tag_item[:2]
 
-        sid = transaction.savepoint(using=using)
-
-        for tag_item in tags:
-            key, value = tag_item[:2]
-
-            value = six.text_type(value)
-            if len(value) > MAX_TAG_VALUE_LENGTH:
-                continue
-            grouptagval = None
-            try:
-                # if it does not exist, create it with times_seen = 0 and let
-                # buffer increase it to 1
-                grouptagval, _ = group_queryset.get_or_create(
-                    key=key,
-                    value=value,
-                    defaults={
-                        'times_seen': 0,
-                        'project': event.project,
-                        'group': event.group,
-                    }
-                )
-            except GroupTagValue.MultipleObjectsReturned:
-                transaction.savepoint_rollback(sid, using=using)
-                return
-
-            if grouptagval:
-                try:
-                    eventtagvalue = EventFilterTagValue(
-                        event=event, group=event.group, grouptagvalue=grouptagval
+                value = six.text_type(value)
+                if len(value) > MAX_TAG_VALUE_LENGTH:
+                    continue
+                with transaction.atomic():
+                    grouptagval, _ = group_queryset.get_or_create(
+                        key=key,
+                        value=value,
+                        defaults={
+                            'times_seen': 0,
+                            'project': event.project,
+                            'group': event.group,
+                        }
                     )
-                    eventtagvalue.save()
 
-                except IntegrityError:
-                    transaction.savepoint_rollback(sid, using=using)
-                    return
-
-        transaction.savepoint_commit(sid, using)
+                    if grouptagval:
+                        eventtagvalue = EventFilterTagValue(
+                            event=event, group=event.group, grouptagvalue=grouptagval
+                        )
+                        eventtagvalue.save()
+        except GroupTagValue.MultipleObjectsReturned:
+            print ("multiple objects returned ", sys.exc_info()[0])
+            return
+        except IntegrityError:
+            print ("integrity error\n", sys.exc_info()[0])
+            return
 
     def _process_existing_aggregate(self, group, event, data):
         date = max(event.datetime, group.last_seen)

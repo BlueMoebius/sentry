@@ -38,8 +38,6 @@ __all__ = ('urlpatterns',)
 
 from sentry.web.frontend.accept_organization_invite import AcceptOrganizationInviteView
 from sentry.web.frontend.access_group_migration import AccessGroupMigrationView
-from sentry.web.frontend.auth_login import AuthLoginView
-from sentry.web.frontend.auth_logout import AuthLogoutView
 from sentry.web.frontend.home import HomeView
 from sentry.web.frontend.organization_audit_log import OrganizationAuditLogView
 from sentry.web.frontend.organization_home import OrganizationHomeView
@@ -98,11 +96,11 @@ urlpatterns += patterns('',
     url(r'^api/0/', include('sentry.api.urls')),
 
     # Account
-    url(r'^login/$', AuthLoginView.as_view(),
+    url(r'^login/$', accounts.login,
         name='sentry-login'),
     url(r'^login-redirect/$', accounts.login_redirect,
         name='sentry-login-redirect'),
-    url(r'^logout/$', AuthLogoutView.as_view(),
+    url(r'^logout/$', accounts.logout,
         name='sentry-logout'),
     url(r'^register/$', accounts.register,
         name='sentry-register'),
@@ -354,9 +352,9 @@ urlpatterns += patterns('',
         name='sentry-group-events'),
     url(r'^(?P<organization_slug>[\w_-]+)/(?P<project_id>[\w_-]+)/group/(?P<group_id>\d+)/events/(?P<event_id>\d+)/$', groups.group,
         name='sentry-group-event'),
-    url(r'^(?P<team_slug>[\w_-]+)/(?P<project_id>[\w_-]+)/group/(?P<group_id>\d+)/events/tag/$', groups.group_event_tag_list,
+    url(r'^(?P<organization_slug>[\w_-]+)/(?P<project_id>[\w_-]+)/group/(?P<group_id>\d+)/events/tag/$', groups.group_event_tag_list,
         name='sentry-group-events-tag'),
-    url(r'^(?P<team_slug>[\w_-]+)/(?P<project_id>[\w_-]+)/group/(?P<group_id>\d+)/events/tag/(?P<grouptagvalue>\d+)/$', groups.group_event_tag_list,
+    url(r'^(?P<organization_slug>[\w_-]+)/(?P<project_id>[\w_-]+)/group/(?P<group_id>\d+)/events/tag/(?P<grouptagvalue>\d+)/$', groups.group_event_tag_list,
         name='sentry-group-events-tag'),
     url(r'^(?P<organization_slug>[\w_-]+)/(?P<project_id>[\w_-]+)/group/(?P<group_id>\d+)/events/(?P<event_id>\d+)/replay/$', events.replay_event,
         name='sentry-replay'),

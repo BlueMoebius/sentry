@@ -118,7 +118,6 @@ TEMPLATE_LOADERS = (
 
 MIDDLEWARE_CLASSES = (
     'sentry.middleware.maintenance.ServicesUnavailableMiddleware',
-    'sentry.middleware.proxy.SetRemoteAddrFromForwardedFor',
     'sentry.middleware.debug.NoIfModifiedSinceMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -364,6 +363,9 @@ CELERYBEAT_SCHEDULE = {
     },
 }
 
+# Disable South in tests as it is sending incorrect create signals
+SOUTH_TESTS_MIGRATE = True
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': True,
@@ -581,6 +583,14 @@ SENTRY_SEARCH_OPTIONS = {}
 SENTRY_TSDB = 'sentry.tsdb.dummy.DummyTSDB'
 SENTRY_TSDB_OPTIONS = {}
 
+# rollups must be ordered from highest granularity to lowest
+SENTRY_TSDB_ROLLUPS = (
+    # (time in seconds, samples to keep)
+    (10, 30),  # 5 minute at 10 seconds
+    (3600, 24 * 7),  # 7 days at 1 hour
+)
+
+
 # File storage
 SENTRY_FILESTORE = 'django.core.files.storage.FileSystemStorage'
 SENTRY_FILESTORE_OPTIONS = {'location': '/tmp/sentry-files'}
@@ -610,8 +620,8 @@ SENTRY_MAX_EXTRA_VARIABLE_SIZE = 4096
 # keys
 SENTRY_MAX_DICTIONARY_ITEMS = 50
 
-SENTRY_MAX_MESSAGE_LENGTH = 1024 * 8
-SENTRY_MAX_STACKTRACE_FRAMES = 25
+SENTRY_MAX_MESSAGE_LENGTH = 1024 * 10
+SENTRY_MAX_STACKTRACE_FRAMES = 150
 SENTRY_MAX_EXCEPTIONS = 25
 
 # Gravatar service base url
